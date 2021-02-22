@@ -172,7 +172,6 @@ def build_cdf_state_preparation(comparator_value, uncertainty_model, weighted_ad
     cdf_qr_sum = QuantumRegister(weighted_adder.num_sum_qubits, 'sum')
     cdf_qr_carry = QuantumRegister(weighted_adder.num_carry_qubits, 'carry')
     cdf_qr_obj = QuantumRegister(1, 'objective')
-    cdf_qr_compare = QuantumRegister(1, 'compare')
     
     comparator = IntegerComparator(weighted_adder.num_sum_qubits, comparator_value + 1, geq=False)
 
@@ -272,7 +271,7 @@ def get_quantum_cvar(var, estimated_probability, uncertainty_model, weighted_add
         cvar_state_preparation.append(cvar_objective, cvar_qr_sum[:] + cvar_qr_obj[:] + cvar_qr_carry[:] + cvar_qr_work[:])
         cvar_state_preparation.append(weighted_adder.inverse(), cvar_qr_state[:] + cvar_qr_sum[:] + cvar_qr_carry[:] + cvar_qr_control[:])
     else:
-        cvar_state_preparation = QuantumCircuit(cvar_qr_state, cvar_qr_obj, cvar_qr_sum, qr_carry, cvar_qr_work, name='A')
+        cvar_state_preparation = QuantumCircuit(cvar_qr_state, cvar_qr_obj, cvar_qr_sum, cvar_qr_carry, cvar_qr_work, name='A')
         cvar_state_preparation.append(uncertainty_model, cvar_qr_state)
         cvar_state_preparation.append(weighted_adder, cvar_qr_state[:] + cvar_qr_sum[:] + cvar_qr_carry[:])
         cvar_state_preparation.append(cvar_objective, cvar_qr_sum[:] + cvar_qr_obj[:] + cvar_qr_carry[:] + cvar_qr_work[:])
