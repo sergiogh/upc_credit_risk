@@ -1,6 +1,6 @@
 import numpy as np
 
-from qiskit import QuantumRegister, QuantumCircuit, Aer, execute
+from qiskit import QuantumRegister, QuantumCircuit, Aer, execute, IBMQ
 from qiskit.circuit.library import IntegerComparator, LinearAmplitudeFunction, WeightedAdder
 from qiskit.aqua.algorithms import IterativeAmplitudeEstimation
 
@@ -12,69 +12,79 @@ from qiskit.finance.applications import GaussianConditionalIndependenceModel as 
 
 # Each asset mapped as [default probability, sensitivity o the PDF, loss given default (expressed in '0.000)]
 
-problem_size = 8
+problem_size = 12
 
-mortgages = [[0.15, 0.1, 100000],
-             [0.25, 0.05, 200000],
-             [0.2, 0.07, 300000],
-             [0.02, 0.01, 400000],
-             [0.05, 0.05, 300000],
-             [0.2, 0.03, 390000],
-             [0.01, 0.01, 100000],
-             [0.03, 0.09, 120000]]
+total_mortgages = [[0.15, 0.1, 100000],
+                    [0.25, 0.05, 200000],
+                    [0.2, 0.07, 300000],
+                    [0.02, 0.01, 400000],
+                    [0.05, 0.05, 300000],
+                    [0.2, 0.03, 390000],
+                    [0.01, 0.01, 100000],
+                    [0.03, 0.09, 120000],
+                    [0.2, 0.07, 300000],
+                    [0.02, 0.01, 400000],
+                    [0.05, 0.05, 300000],
+                    [0.25, 0.05, 310000],
+                    [0.01, 0.01, 600000],
+                    [0.05, 0.01, 800000],
+                    [0.04, 0.01, 300000],
+                    [0.2, 0.4, 560000],
+                    [0.7, 0.10, 100000],
+                    [0.04, 0.01, 100000],
+                    [0.2, 0.07, 300000],
+                    [0.02, 0.01, 400000],
+                    [0.05, 0.05, 300000],
+                    [0.02, 0.03, 390000],
+                    [0.1, 0.01, 200000],
+                    [0.04, 0.01, 600000],
+                    [0.03, 0.01, 700000]]
 
-# Get only a subset when making the problem smaller
-mortgages = mortgages[:problem_size]
+
 
 # Confidence level for VaR and CVaR. On BaselII around 99,9%
-alpha = 0.02
-
+alpha = 0.03
 
 # Mapping parameters
 # Loss Given Default multiplier (we can't map very big numbers, so we eliminate zeroes, from X00,000 -> X0)
 lgd_factor = 100000
 
+IBMQ.load_account()
+provider = IBMQ.get_provider()
+backend = provider.get_backend('ibmq_qasm_simulator')
+#backend = Aer.get_backend('qasm_simulator')
+
 # Z represents our distribution, discretized with n qubits. The more qubits, the merrier. (I.e. the more values we will be able to approximate)
-n_z = 2
+n_z = 3
 z_max = 2
 z_values = np.linspace(-z_max, z_max, 2**n_z)
 
-K = len(mortgages)
-
-probability_default = []
-sensitivity_z = []
-loss_given_default = []
-for m in mortgages:
-    probability_default.append(m[0])
-    sensitivity_z.append(m[1])
-    loss_given_default.append(int(m[2] / lgd_factor))   # LGD is simplified, reduced proportionately and taken only the integer part
-
-
 def get_classical_expectation_loss(uncertainty_model, K):
-    job = execute(uncertainty_model, backend=Aer.get_backend('statevector_simulator'))
-    # analyze uncertainty circuit and determine exact solutions using Montecarlo over the circuit.
-    # We could compare with a fully classical MC modeling the GCI, but it is too difficult and I'm lazy
 
+    classical_expectations_qc = QuantumCircuit(uncertainty_model.num_qubits)
+    classical_expectations_qc.append(uncertainty_model, range(uncertainty_model.num_qubits))
+    classical_expectations_qc.measure_all()
+    shots = 4000
+    job = execute(classical_expectations_qc, backend=backend, shots=4000)
+    counts = job.result().get_counts()
     p_z = np.zeros(2**n_z)
     p_default = np.zeros(K)
     values = []
     probabilities = []
-    num_qubits = uncertainty_model.num_qubits
-    for i, a in enumerate(job.result().get_statevector()):
-        # get binary representation
-        b = ('{0:0%sb}' % num_qubits).format(i)
-        prob = np.abs(a)**2
+
+    for i in counts:
+        prob = counts[i]/shots
 
         # extract value of Z and corresponding probability    
         # Note Z i mapped in the least significant n_z qubits. We add probabilities for each element in the distribution
-        i_normal = int(b[-n_z:], 2)
+        i_normal = int(i[-n_z:], 2)
         p_z[i_normal] += prob
 
         # determine overall default probability for k 
         # Most significant qubits represent 1 for default of that asset.
         loss = 0
         for k in range(K):
-            if b[K - k - 1] == '1':
+            if i[K - k - 1] == '1':
                 p_default[k] += prob
                 loss += loss_given_default[k]
         values += [loss]
@@ -97,18 +107,15 @@ def get_classical_expectation_loss(uncertainty_model, K):
     exact_cvar = np.dot(pdf[(i_var+1):], losses[(i_var+1):])/sum(pdf[(i_var+1):])
 
     # Calculate P[L <= VaR[L]]
-    alpha_point = np.where(values == exact_var)[0].min()
-    p_l_less_than_var = np.sum(probabilities[:alpha_point])
+    p_l_less_than_var = cdf[exact_var]
 
     return expected_loss, exact_var, exact_cvar, p_l_less_than_var, losses
-
 
 def get_uncertainty_model(n_z, z_max, probability_default, sensitivity_z):
     return GCI(n_z, z_max, probability_default, sensitivity_z) 
 
 def get_weighted_adder(n_z, K, loss_given_default):
     return WeightedAdder(n_z + K, [0]*n_z + loss_given_default)
-
 
 def get_quantum_expected_loss(uncertainty_model, weighted_adder, loss_given_default):
 
@@ -154,14 +161,13 @@ def get_quantum_expected_loss(uncertainty_model, weighted_adder, loss_given_defa
         state_preparation.append(objective.to_gate(), qr_sum[:] + qr_obj[:])
         state_preparation.append(weighted_adder.to_gate().inverse(), qr_state[:] + qr_sum[:] + qr_carry[:])
 
-    backend = Aer.get_backend('qasm_simulator')
-
     epsilon_iae = 0.01
     alpha_iae = 0.05
     iae = IterativeAmplitudeEstimation(state_preparation=state_preparation,
                                     epsilon=epsilon_iae, alpha=alpha_iae,
                                     objective_qubits=[len(qr_state)],
                                     post_processing=objective.post_processing)
+    
     result = iae.run(quantum_instance=backend, shots=100)
 
     conf_int = np.array(result['confidence_interval'])
@@ -193,7 +199,6 @@ def build_cdf_state_preparation(comparator_value, uncertainty_model, weighted_ad
 
 def get_quantum_var(alpha, losses, uncertainty_model, weighted_adder):
 
-    backend=Aer.get_backend('statevector_simulator')
     target_value = 1 - alpha
     low_level = min(losses) - 1
     high_level = max(losses)
@@ -236,7 +241,6 @@ def get_quantum_var(alpha, losses, uncertainty_model, weighted_adder):
             low_value = value
 
     return level, value
-
 
 def get_quantum_cvar(var, estimated_probability, uncertainty_model, weighted_adder):
     breakpoints = [0, var]
@@ -286,7 +290,7 @@ def get_quantum_cvar(var, estimated_probability, uncertainty_model, weighted_add
                                         epsilon=epsilon_iae, alpha=alpha_iae,
                                         objective_qubits=[len(cvar_qr_state)],
                                         post_processing=cvar_objective.post_processing)
-    result_cvar = ae_cvar.run(quantum_instance=Aer.get_backend('qasm_simulator'), shots=100)
+    result_cvar = ae_cvar.run(quantum_instance=backend, shots=100)
 
     d = (1.0 - estimated_probability)
     v = result_cvar['estimation'] / d if d != 0 else 0
@@ -298,48 +302,62 @@ estimated_vars = []
 var_errors = []
 estimated_cvars = []
 cvar_errors = []
-z_range = range(2,10)
 
-for n_z in z_range:
+#problem_sizes = range(4, 8)
 
-    uncertainty_model = get_uncertainty_model(n_z, z_max, probability_default, sensitivity_z)
-    expected_loss, exact_var, exact_cvar, p_l_less_than_var, losses = get_classical_expectation_loss(uncertainty_model, K)
+#for problem_size in problem_sizes:
 
-    weighted_adder = get_weighted_adder(n_z, K, loss_given_default)
-    confidence_expected_loss, expected_loss_estimation = get_quantum_expected_loss(uncertainty_model, weighted_adder, loss_given_default)    
+# Get only a subset when making the problem smaller
+mortgages = total_mortgages[:problem_size]
 
-    estimated_var, estimated_var_probability = get_quantum_var(alpha, losses, uncertainty_model, weighted_adder)
-    estimated_cvar = get_quantum_cvar(estimated_var, estimated_var_probability, uncertainty_model, weighted_adder)
+K = len(mortgages)
 
-    
-    print('-------------------------')
-    print('-------------------------')
-    print('Test for discretization: ', n_z)
-    print('-------------------------')
-    print('LGD: ', loss_given_default, ' Total Assets value: $ {0:12,.0f}'.format(sum(loss_given_default)*lgd_factor))
-    print('Assets: ', K)
-    print('Assets default Probabilities: ', probability_default)
-    print('-------------------------')
-    print('Expected Loss E[L]:                $ {0:12,.0f}'.format(expected_loss * lgd_factor))
-    print('Estimated Loss E[L]: $ {0:9,.0f}'.format(expected_loss_estimation * lgd_factor))
-    print('Confidence interval: \t[%.0f, %.0f]' % (tuple(confidence_expected_loss * lgd_factor)))
-    print('-------------------------')
-    print('Value at Risk VaR[L](%.2f):        $ {0:12,.0f}'.format((exact_var*lgd_factor)) % (alpha))
-    print('Estimated Value at Risk: $ {0:9,.0f}'.format(estimated_var * lgd_factor))
-    error_var_estimation = 1-(exact_var) / estimated_var
-    print('Error VaR Estiamtion: ', error_var_estimation)
-    print('P[L <= VaR[L]](%.2f):              %.4f' % (alpha, p_l_less_than_var))
-    print('Estimated P[L <= VaR[L]](%.2f):              %.3f' % (alpha, estimated_var_probability))
-    print('-------------------------')
-    print('Conditional Value at Risk CVaR[L]: $ {0:12,.0f}'.format(exact_cvar * lgd_factor))
-    print('Estimated Conditional Value at Risk CVaR[L]: $ {0:12,.0f}'.format(estimated_cvar * lgd_factor))
-    error_cvar_estimation = 1-(exact_cvar) / estimated_cvar
-    print('Error CVaR Estiamtion: ', error_cvar_estimation)
+probability_default = []
+sensitivity_z = []
+loss_given_default = []
+for m in mortgages:
+    probability_default.append(m[0])
+    sensitivity_z.append(m[1])
+    loss_given_default.append(int(m[2] / lgd_factor))   # LGD is simplified, reduced proportionately and taken only the integer part
 
-    estimated_cvars.append(estimated_cvar)
-    estimated_vars.append(estimated_var)
-    var_errors.append(error_var_estimation)
-    cvar_errors.append(error_cvar_estimation)
+
+uncertainty_model = get_uncertainty_model(n_z, z_max, probability_default, sensitivity_z)
+expected_loss, exact_var, exact_cvar, p_l_less_than_var, losses = get_classical_expectation_loss(uncertainty_model, K)
+
+weighted_adder = get_weighted_adder(n_z, K, loss_given_default)
+confidence_expected_loss, expected_loss_estimation = get_quantum_expected_loss(uncertainty_model, weighted_adder, loss_given_default)    
+
+estimated_var, estimated_var_probability = get_quantum_var(alpha, losses, uncertainty_model, weighted_adder)
+estimated_cvar = get_quantum_cvar(estimated_var, estimated_var_probability, uncertainty_model, weighted_adder)
+
+
+print('-------------------------')
+print('-------------------------')
+print('-------------------------')
+print('LGD: ', loss_given_default, ' Total Assets value: $ {0:12,.0f}'.format(sum(loss_given_default)*lgd_factor))
+print('Assets: ', K)
+print('Assets default Probabilities: ', probability_default)
+print('-------------------------')
+print('Expected Loss E[L]:                $ {0:12,.0f}'.format(expected_loss * lgd_factor))
+print('Estimated Loss E[L]: $ {0:9,.0f}'.format(expected_loss_estimation * lgd_factor))
+print('Confidence interval: \t[%.0f, %.0f]' % (tuple(confidence_expected_loss * lgd_factor)))
+print('-------------------------')
+print('Value at Risk VaR[L](%.2f):        $ {0:12,.0f}'.format((exact_var*lgd_factor)) % (alpha))
+print('Estimated Value at Risk: $ {0:9,.0f}'.format(estimated_var * lgd_factor))
+error_var_estimation = 1-(exact_var) / estimated_var
+print('Error VaR Estiamtion: ', error_var_estimation)
+print('P[L <= VaR[L]](%.2f):              %.4f' % (alpha, p_l_less_than_var))
+print('Estimated P[L <= VaR[L]](%.2f):              %.3f' % (alpha, estimated_var_probability))
+print('-------------------------')
+print('Conditional Value at Risk CVaR[L]: $ {0:12,.0f}'.format(exact_cvar * lgd_factor))
+print('Estimated Conditional Value at Risk CVaR[L]: $ {0:12,.0f}'.format(estimated_cvar * lgd_factor))
+error_cvar_estimation = 1-(exact_cvar) / estimated_cvar
+print('Error CVaR Estiamtion: ', error_cvar_estimation)
+
+estimated_cvars.append(estimated_cvar)
+estimated_vars.append(estimated_var)
+var_errors.append(error_var_estimation)
+cvar_errors.append(error_cvar_estimation)
 
 
 print(estimated_vars)
