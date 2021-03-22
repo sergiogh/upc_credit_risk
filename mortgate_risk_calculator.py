@@ -12,7 +12,7 @@ from qiskit.finance.applications import GaussianConditionalIndependenceModel as 
 
 # Each asset mapped as [default probability, sensitivity o the PDF, loss given default (expressed in '0.000)]
 
-problem_size = 12
+problem_size = 6
 
 total_mortgages = [[0.15, 0.1, 100000],
                     [0.25, 0.05, 200000],
@@ -51,11 +51,12 @@ lgd_factor = 100000
 
 IBMQ.load_account()
 provider = IBMQ.get_provider()
-backend = provider.get_backend('ibmq_qasm_simulator')
-#backend = Aer.get_backend('qasm_simulator')
+#backend = provider.get_backend('ibmq_qasm_simulator')
+#backend = provider.get_backend('ibmq_qasm_simulator')
+backend = Aer.get_backend('qasm_simulator')
 
 # Z represents our distribution, discretized with n qubits. The more qubits, the merrier. (I.e. the more values we will be able to approximate)
-n_z = 3
+n_z = 2
 z_max = 2
 z_values = np.linspace(-z_max, z_max, 2**n_z)
 
@@ -326,9 +327,11 @@ expected_loss, exact_var, exact_cvar, p_l_less_than_var, losses = get_classical_
 
 weighted_adder = get_weighted_adder(n_z, K, loss_given_default)
 confidence_expected_loss, expected_loss_estimation = get_quantum_expected_loss(uncertainty_model, weighted_adder, loss_given_default)    
-
+print(confidence_expected_loss, expected_loss_estimation)
 estimated_var, estimated_var_probability = get_quantum_var(alpha, losses, uncertainty_model, weighted_adder)
+print(estimated_var, estimated_var_probability)
 estimated_cvar = get_quantum_cvar(estimated_var, estimated_var_probability, uncertainty_model, weighted_adder)
+print(estimated_cvar)
 
 
 print('-------------------------')
