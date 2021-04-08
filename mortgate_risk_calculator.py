@@ -8,6 +8,9 @@ from qiskit.aqua import QuantumInstance
 
 from qiskit.finance.applications import GaussianConditionalIndependenceModel as GCI
 
+import random
+random.seed(42)
+np.random.seed(42)
 
 def get_classical_expectation_loss(uncertainty_model, K):
 
@@ -15,7 +18,7 @@ def get_classical_expectation_loss(uncertainty_model, K):
     classical_expectations_qc.append(uncertainty_model, range(uncertainty_model.num_qubits))
     classical_expectations_qc.measure_all()
     shots = 4000
-    job = execute(classical_expectations_qc, backend=device_backend, shots=4000, noise_model=noise_model)
+    job = execute(classical_expectations_qc, backend=device_backend, shots=4000)
     counts = job.result().get_counts()
     p_z = np.zeros(2**n_z)
     p_default = np.zeros(K)
@@ -258,7 +261,7 @@ def get_quantum_cvar(var, estimated_probability, uncertainty_model, weighted_add
 
 # Each asset mapped as [default probability, sensitivity o the PDF, loss given default (expressed in '0.000)]
 
-problem_size = 6
+problem_size = 4
 
 total_mortgages = [[0.15, 0.1, 100000],
                     [0.25, 0.05, 200000],
@@ -297,17 +300,17 @@ lgd_factor = 100000
 
 IBMQ.load_account()
 provider = IBMQ.get_provider()
-#device_backend = provider.get_backend('ibmq_qasm_simulator')
 
+#device_backend = provider.get_backend('ibmq_qasm_simulator')
+device_backend = Aer.get_backend('qasm_simulator')
 #device_backend = provider.get_backend('ibmq_16_melbourne')
 
 # Noise model
 ibmq_16_melbourne = provider.get_backend('ibmq_16_melbourne')
 noise_model = NoiseModel.from_backend(ibmq_16_melbourne)
-device_backend = Aer.get_backend('qasm_simulator')
-#
-backend = QuantumInstance(device_backend, noise_model=noise_model)
-#backend = QuantumInstance(device_backend)
+
+#backend = QuantumInstance(device_backend, noise_model=noise_model)
+backend = QuantumInstance(device_backend)
 
 
 # Z represents our distribution, discretized with n qubits. The more qubits, the merrier. (I.e. the more values we will be able to approximate)
@@ -360,4 +363,4 @@ print('-------------------------')
 print('Conditional Value at Risk CVaR[L]: $ {0:12,.0f}'.format(exact_cvar * lgd_factor))
 print('Estimated Conditional Value at Risk CVaR[L]: $ {0:12,.0f}'.format(estimated_cvar * lgd_factor))
 error_cvar_estimation = 1-(exact_cvar) / estimated_cvar
-print('Error CVaR Estiamtion: ', error_cvar_estimation)
+print('Error CVaR Estimation: ', error_cvar_estimation)
