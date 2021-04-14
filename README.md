@@ -64,20 +64,3 @@ Other uses and documentation
 SVMs and Quantum classifiers to establish credit risk: https://www.researchgate.net/publication/341700842_Credit_risk_scoring_with_a_supervised_quantum_classifier
 
 Basel II Requirements: https://www.bis.org/publ/bcbs107.pdf
-
-
-### Potential Index
-Intro:
-Capital Risk. ECR, Basel II, Banks and financial crises
-Thesaurus: ECR, PD, LGD, VaR, CVaR, etc.
-The standard way: MC Analysis. And its problems and limitations
-Encoding probability distributions in Quantum Computers (Uniform, Linear, Logarithmic, Gaussian)
-Amplitude Amplification, oracles and search problems
-Amplitude Estimation through AA and the Heisenberg limit
-QAE with Phase Estimation
-Other approaches to QAE
-Iterative AE
-Maximum Likelyhood AE (Yohichi Suzuki et.all. Jan 2020) (https://www.researchgate.net/publication/338489339_Amplitude_estimation_without_phase_estimation)
-Estimating Credit Risk
-Outlook
-
