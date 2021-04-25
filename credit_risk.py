@@ -85,7 +85,8 @@ class CreditRisk():
         i_var = np.argmax(cdf >= 1-self.alpha)
         exact_var = losses[i_var]
         exact_cvar = np.dot(pdf[(i_var+1):], losses[(i_var+1):])/sum(pdf[(i_var+1):])
-
+        print(exact_var)
+        print(exact_cvar)
         # Calculate P[L <= VaR[L]]
         p_l_less_than_var = cdf[exact_var]
 
@@ -290,6 +291,35 @@ class CreditRisk():
 
         return v + var
 
+    def montecarlo_sample(self, loans):
+        total_loss_given_default = 0
+        for i in range(len(loans)):
+            total_loss_given_default = total_loss_given_default + random.choices([0, loans[i][2]], [1-loans[i][0], loans[i][0]])[0]
+        return total_loss_given_default
+
+    def classical_run(self, alpha, loans):
+
+        total_value = 0
+        expected_loss = 0
+        for i in range(len(loans)):
+            total_value += loans[i][2]
+            expected_loss += loans[i][0] * loans[i][2]
+
+        runs = 100000
+        simulations = np.zeros(runs)
+        for run in range(runs):
+            simulations[run] = self.montecarlo_sample(loans)
+
+        var_level = 100 - alpha * 100
+        ordered_simulations = np.sort(simulations)
+        var = np.percentile(ordered_simulations, var_level)
+        cvar = simulations[ordered_simulations > var].mean()
+    
+        # Return VaR and CVaR
+        return var, cvar+var
+
+
+
     def run(self, alpha, loans, n_z = 3, device="simulator", noise=True):
         
         provider = IBMQ.get_provider()
@@ -308,7 +338,8 @@ class CreditRisk():
 
         # Mapping parameters
         # Loss Given Default multiplier (we can't map very big numbers, so we eliminate zeroes, from X00,000 -> X0)
-        lgd_factor = 100000
+        zeroes = len(str(int(min(np.array(loans)[:,2:3].tolist())[0])))-1
+        lgd_factor = 10**zeroes
         
         self.n_z = n_z
         self.alpha = alpha
@@ -319,12 +350,13 @@ class CreditRisk():
             self.probability_default.append(m[0])
             self.sensitivity_z.append(m[1])
             self.loss_given_default.append(int(m[2] / lgd_factor))   # LGD is simplified, reduced proportionately and taken only the integer part
-
+        #print(self.loss_given_default)
         # sensitivity_z = np.zeros(K) # Remove Sensitivities for testing
         expected_loss, exact_var, exact_cvar, p_l_less_than_var, losses     = self.get_classical_expectation_loss()
         confidence_expected_loss, expected_loss_estimation                  = self.get_quantum_expected_loss()    
         estimated_var, estimated_var_probability                            = self.get_quantum_var(losses)
         estimated_cvar                                                      = self.get_quantum_cvar(estimated_var, estimated_var_probability)
+        classical_var, classical_cvar                                       = self.classical_run(self.alpha, self.loans)
 
 
         print('-------------------------')
@@ -350,3 +382,6 @@ class CreditRisk():
         print('Estimated Conditional Value at Risk CVaR[L]: $ {0:12,.0f}'.format(estimated_cvar * lgd_factor))
         error_cvar_estimation = 1-(exact_cvar) / estimated_cvar
         print('Error CVaR Estimation: ', error_cvar_estimation)
+        print('-------------------------')
+        print('Montecarlo Value at Risk VaR[L](%.2f):        $ {0:12,.0f}'.format(classical_var) % (self.alpha))
+        print('Montecarlo Expected Shortfall CVaR[L]: $ {0:12,.0f}'.format(classical_cvar))

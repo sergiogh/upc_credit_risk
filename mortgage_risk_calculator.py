@@ -29,8 +29,13 @@ total_mortgages = [[0.15, 0.1, 100000],
 
 # Confidence level for VaR and CVaR. On BaselII around 99,9%
 alpha = 0.03
-problem_size = 4
+problem_size = 3
 mortgages = total_mortgages[:problem_size]
 
 cr = CreditRisk()
-cr.run(alpha, mortgages, 4, "simulator", False)
+cr.run(alpha, mortgages, 3, "simulator", False)
+
+
+problem_size = 12
+mortgages = total_mortgages[:problem_size]
+print(cr.classical_run(alpha, mortgages))
