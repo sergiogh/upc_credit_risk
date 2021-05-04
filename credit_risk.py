@@ -39,7 +39,7 @@ class CreditRisk():
 
     def get_classical_expectation_loss(self):
 
-        K = len(self.loans)
+        K = len(self.loss_given_default)
         uncertainty_model = self.get_uncertainty_model()
         classical_expectations_qc = QuantumCircuit(uncertainty_model.num_qubits)
         classical_expectations_qc.append(uncertainty_model, range(uncertainty_model.num_qubits))
@@ -51,7 +51,7 @@ class CreditRisk():
         p_default = np.zeros(K)
         values = []
         probabilities = []
-
+        print(self.loans)
         for i in counts:
             prob = counts[i]/shots
 
@@ -69,7 +69,7 @@ class CreditRisk():
                     loss += self.loss_given_default[k]
             values += [loss]
             probabilities += [prob]   
-
+        print(values)
         values = np.array(values)
         probabilities = np.array(probabilities)
             
@@ -78,19 +78,20 @@ class CreditRisk():
 
         losses = np.sort(np.unique(values))
         pdf = np.zeros(len(losses))
+        
         for i, v in enumerate(losses):
             pdf[i] += sum(probabilities[values == v])
+
         cdf = np.cumsum(pdf)
 
         i_var = np.argmax(cdf >= 1-self.alpha)
         exact_var = losses[i_var]
         exact_cvar = np.dot(pdf[(i_var+1):], losses[(i_var+1):])/sum(pdf[(i_var+1):])
-        print(exact_var)
-        print(exact_cvar)
+        
         # Calculate P[L <= VaR[L]]
-        p_l_less_than_var = cdf[exact_var]
+        #p_l_less_than_var = cdf[exact_var]
 
-        return expected_loss, exact_var, exact_cvar, p_l_less_than_var, losses
+        return expected_loss, exact_var, exact_cvar, losses
 
     def get_uncertainty_model(self):
         return GCI(self.n_z, self.z_max, self.probability_default, self.sensitivity_z) 
@@ -350,9 +351,9 @@ class CreditRisk():
             self.probability_default.append(m[0])
             self.sensitivity_z.append(m[1])
             self.loss_given_default.append(int(m[2] / lgd_factor))   # LGD is simplified, reduced proportionately and taken only the integer part
-        #print(self.loss_given_default)
+
         # sensitivity_z = np.zeros(K) # Remove Sensitivities for testing
-        expected_loss, exact_var, exact_cvar, p_l_less_than_var, losses     = self.get_classical_expectation_loss()
+        expected_loss, exact_var, exact_cvar, losses     = self.get_classical_expectation_loss()
         confidence_expected_loss, expected_loss_estimation                  = self.get_quantum_expected_loss()    
         estimated_var, estimated_var_probability                            = self.get_quantum_var(losses)
         estimated_cvar                                                      = self.get_quantum_cvar(estimated_var, estimated_var_probability)
@@ -375,7 +376,6 @@ class CreditRisk():
         print('Estimated Value at Risk: $ {0:9,.0f}'.format(estimated_var * lgd_factor))
         error_var_estimation = 1-(exact_var) / estimated_var
         print('Error VaR Estimation: ', error_var_estimation)
-        print('P[L <= VaR[L]](%.2f):              %.4f' % (self.alpha, p_l_less_than_var))
         print('Estimated P[L <= VaR[L]](%.2f):              %.3f' % (self.alpha, estimated_var_probability))
         print('-------------------------')
         print('Conditional Value at Risk CVaR[L]: $ {0:12,.0f}'.format(exact_cvar * lgd_factor))
