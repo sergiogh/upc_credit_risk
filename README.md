@@ -1,8 +1,20 @@
-# UPC Postgrad in Quantum Computing
+# UPC Postgrad in Quantum Computing final thesis - Sergio Gago
+## May 2021
+
+This repository contains all the research, process and engineering on how to apply quantum computing algorithms for simulating credit risk scenarios, clasically done with Montecarlo analysis.
+
+Index:
+[Credit Risk Analysis with Quantum Computers](final_project_credit_risk.pdf)
+_Note this is not your typical academic paper, please do not cite. Use at your own peril_
+
+[Final Project Notebook](final_project_credit_risk.ipynb)
+[Credit Risk class](credit_risk.py) - You can import this module as is and use it for your own calculations
+[Class usage Example](mortgage_risk_calculator.py) - Usage example
+[Fannie Mae clustering hybrid system](dataset_clustering_analysis.ipynb) - Example of clustering with KMeans + Quantum algorithm simulation
+
+In the rest of the repository you can find small tutorials and manuals on how to map probability distributions in a quantum circuit, how to build the QAE algorithm by hand or how to use the same method to calculate the Blach-Scholes equation for option pricing.
 
 ## Raw resources and materials
-
-## CREDIT RISK ANALYSIS
 
 Quick problem explanation
 [Quantum Finance: Credit Risk Analysis with QAE | by Alice Liu](https://medium.com/@aliceliu2004/quantum-finance-credit-risk-analysis-with-qae-b339b585aaed)
@@ -54,13 +66,6 @@ https://arxiv.org/pdf/2006.14510.pdf
 Marek Rutkowski and Silvio Tarca, “Regulatory capital modelling for credit risk,”
 https://arxiv.org/abs/1412.1183
 
-
-### Ideas:
-QAE allows us to estimate ‘a’ while Grover searches for the “good” options within ‘a’ with a quadratic speedup vs classical
-Iterative amplitude estimation: removing the need for QPE you need less ancillary qubits (https://qiskit.org/documentation/stubs/qiskit.aqua.algorithms.IterativeAmplitudeEstimation.html#qiskit.aqua.algorithms.IterativeAmplitudeEstimation)
-
-
-Other uses and documentation
 SVMs and Quantum classifiers to establish credit risk: https://www.researchgate.net/publication/341700842_Credit_risk_scoring_with_a_supervised_quantum_classifier
 
 Basel II Requirements: https://www.bis.org/publ/bcbs107.pdf
