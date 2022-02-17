@@ -1,11 +1,14 @@
 
 import numpy as np
-from qiskit import QuantumRegister, QuantumCircuit, Aer, execute, IBMQ
-from qiskit.providers.aer.noise import NoiseModel
+from qiskit import Aer, execute, IBMQ
+from qiskit.circuit import QuantumRegister, QuantumCircuit
 from qiskit.circuit.library import IntegerComparator, LinearAmplitudeFunction, WeightedAdder
-from qiskit.aqua.algorithms import IterativeAmplitudeEstimation
-from qiskit.aqua import QuantumInstance, aqua_globals
-from qiskit.finance.applications import GaussianConditionalIndependenceModel as GCI
+from qiskit.circuit.library import LinearAmplitudeFunction
+
+from qiskit.algorithms import IterativeAmplitudeEstimation, EstimationProblem
+from qiskit.utils import QuantumInstance, algorithm_globals
+from qiskit_finance.circuit.library import GaussianConditionalIndependenceModel as GCI
+
 import random
 
 class CreditRisk():
@@ -26,7 +29,8 @@ class CreditRisk():
 
         random.seed(42)
         np.random.seed(42)
-        aqua_globals.random_seed = 123456
+        algorithm_globals.random_seed = 10598
+
 
         z_values = np.linspace(-self.z_max, self.z_max, 2**self.n_z)
 
@@ -35,7 +39,6 @@ class CreditRisk():
         self.loss_given_default = []
         self.loans = []
 
-        IBMQ.load_account()
 
     def get_classical_expectation_loss(self):
 
@@ -51,7 +54,6 @@ class CreditRisk():
         p_default = np.zeros(K)
         values = []
         probabilities = []
-        print(self.loans)
         for i in counts:
             prob = counts[i]/shots
 
@@ -69,7 +71,7 @@ class CreditRisk():
                     loss += self.loss_given_default[k]
             values += [loss]
             probabilities += [prob]   
-        print(values)
+
         values = np.array(values)
         probabilities = np.array(probabilities)
             
@@ -149,15 +151,18 @@ class CreditRisk():
 
         epsilon_iae = 0.01
         alpha_iae = 0.05
-        iae = IterativeAmplitudeEstimation(state_preparation=state_preparation,
-                                            epsilon=epsilon_iae, alpha=alpha_iae,
-                                            objective_qubits=[len(qr_state)],
-                                            post_processing=objective.post_processing)
+
+        qi = QuantumInstance(self.device_backend, shots=4000)
+        problem = EstimationProblem(state_preparation=state_preparation, objective_qubits=[len(qr_state)])
+
+        iae = IterativeAmplitudeEstimation(epsilon_iae, 
+                                            alpha=alpha_iae,
+                                            quantum_instance=qi)
         
-        result = iae.run(quantum_instance=self.backend, shots=4000)
+        result = iae.estimate(problem)
 
         conf_int = np.array(result['confidence_interval'])
-        return conf_int, result['estimation']
+        return conf_int, result.estimation
 
     def build_cdf_state_preparation(self, comparator_value, uncertainty_model, weighted_adder):
         cdf_qr_state = QuantumRegister(uncertainty_model.num_qubits, 'state')
@@ -219,11 +224,14 @@ class CreditRisk():
             num_eval += 1
 
             cdf_state_pareparation = self.build_cdf_state_preparation(level, uncertainty_model, weighted_adder)
-            iae_var = IterativeAmplitudeEstimation(state_preparation=cdf_state_pareparation, 
-                                                    epsilon=0.01, 
-                                                    alpha=0.05, 
-                                                    objective_qubits = [uncertainty_model.num_qubits])
-            value = iae_var.run(quantum_instance=self.backend, shots=1000)['estimation']
+
+            qi = QuantumInstance(self.device_backend, shots=1000)
+            problem = EstimationProblem(
+                state_preparation=cdf_state_pareparation, objective_qubits=[cdf_state_pareparation.num_qubits - 1]
+            )
+            iae_var = IterativeAmplitudeEstimation(0.01, alpha=0.05, quantum_instance=qi)
+            result = iae_var.estimate(problem)
+            value = result.estimation
 
             if value >= target_value:
                 high_level = level
@@ -280,15 +288,18 @@ class CreditRisk():
         epsilon_iae = 0.01
         alpha_iae = 0.05
 
+        qi = QuantumInstance(self.device_backend, shots=4000)
+        problem = EstimationProblem(
+            state_preparation=cvar_state_preparation,
+            objective_qubits=[len(cvar_qr_state)],
+            post_processing=cvar_objective.post_processing,
+        )
         # construct amplitude estimation
-        ae_cvar = IterativeAmplitudeEstimation(state_preparation=cvar_state_preparation,
-                                            epsilon=epsilon_iae, alpha=alpha_iae,
-                                            objective_qubits=[len(cvar_qr_state)],
-                                            post_processing=cvar_objective.post_processing)
-        result_cvar = ae_cvar.run(quantum_instance=self.backend, shots=4000)
+        ae_cvar = IterativeAmplitudeEstimation(epsilon_iae, alpha=alpha_iae, quantum_instance=qi)
+        result_cvar = ae_cvar.estimate(problem)
 
         d = (1.0 - estimated_probability)
-        v = result_cvar['estimation'] / d if d != 0 else 0
+        v = result_cvar.estimation / d if d != 0 else 0
 
         return v + var
 
@@ -321,21 +332,16 @@ class CreditRisk():
 
 
 
-    def run(self, alpha, loans, n_z = 3, device="simulator", noise=True):
+    def run(self, alpha, loans, n_z = 3, device="qasm_simulator", noise=True, classical_benchmark=False):
         
-        provider = IBMQ.get_provider()
-        if(device == "simulator"):
+        if(device == "qasm_simulator"):
             self.device_backend = Aer.get_backend('qasm_simulator')
         else:
+            IBMQ.load_account()
+            provider = IBMQ.get_provider()
             self.device_backend = provider.get_backend('ibmq_qasm_simulator')
-            #device_backend = provider.get_backend('ibmq_16_melbourne')
-
-        if(noise):
-            ibmq_16_melbourne = provider.get_backend('ibmq_16_melbourne')
-            noise_model = NoiseModel.from_backend(ibmq_16_melbourne)
-            self.backend = QuantumInstance(self.device_backend, noise_model=noise_model)
-        else:
-            self.backend = QuantumInstance(self.device_backend)
+        
+        self.backend = QuantumInstance(self.device_backend)
 
         # Mapping parameters
         # Loss Given Default multiplier (we can't map very big numbers, so we eliminate zeroes, from X00,000 -> X0)
@@ -352,36 +358,16 @@ class CreditRisk():
             self.sensitivity_z.append(m[1])
             self.loss_given_default.append(int(m[2] / lgd_factor))   # LGD is simplified, reduced proportionately and taken only the integer part
 
-        # sensitivity_z = np.zeros(K) # Remove Sensitivities for testing
-        expected_loss, exact_var, exact_cvar, losses     = self.get_classical_expectation_loss()
-        confidence_expected_loss, expected_loss_estimation                  = self.get_quantum_expected_loss()    
-        estimated_var, estimated_var_probability                            = self.get_quantum_var(losses)
-        estimated_cvar                                                      = self.get_quantum_cvar(estimated_var, estimated_var_probability)
-        classical_var, classical_cvar                                       = self.classical_run(self.alpha, self.loans)
 
+        result = {}
+        result['expected_loss'], result['exact_var'], result['exact_cvar'], result['losses']     = self.get_classical_expectation_loss()
+        #confidence_expected_loss, expected_loss_estimation                  = self.get_quantum_expected_loss()    
+        result['estimated_var'], estimated_var_probability                            = self.get_quantum_var(result['losses'])
+        result['estimated_cvar']                                                      = self.get_quantum_cvar(result['estimated_var'], estimated_var_probability)
 
-        print('-------------------------')
-        print('-------------------------')
-        print('-------------------------')
-        print('LGD: ', self.loss_given_default, ' Total Assets value: $ {0:12,.0f}'.format(sum(self.loss_given_default)*lgd_factor))
-        print('Assets: ', K)
-        print('Assets default Probabilities: ', self.probability_default)
-        print('Asset Sensitivities: ', self.sensitivity_z)
-        print('-------------------------')
-        print('Expected Loss E[L]:                $ {0:12,.0f}'.format(expected_loss * lgd_factor))
-        print('Estimated Loss E[L]: $ {0:9,.0f}'.format(expected_loss_estimation * lgd_factor))
-        print('Confidence interval: \t[%.0f, %.0f]' % (tuple(confidence_expected_loss * lgd_factor)))
-        print('-------------------------')
-        print('Value at Risk VaR[L](%.2f):        $ {0:12,.0f}'.format((exact_var*lgd_factor)) % (self.alpha))
-        print('Estimated Value at Risk: $ {0:9,.0f}'.format(estimated_var * lgd_factor))
-        error_var_estimation = 1-(exact_var) / estimated_var
-        print('Error VaR Estimation: ', error_var_estimation)
-        print('Estimated P[L <= VaR[L]](%.2f):              %.3f' % (self.alpha, estimated_var_probability))
-        print('-------------------------')
-        print('Conditional Value at Risk CVaR[L]: $ {0:12,.0f}'.format(exact_cvar * lgd_factor))
-        print('Estimated Conditional Value at Risk CVaR[L]: $ {0:12,.0f}'.format(estimated_cvar * lgd_factor))
-        error_cvar_estimation = 1-(exact_cvar) / estimated_cvar
-        print('Error CVaR Estimation: ', error_cvar_estimation)
-        print('-------------------------')
-        print('Montecarlo Value at Risk VaR[L](%.2f):        $ {0:12,.0f}'.format(classical_var) % (self.alpha))
-        print('Montecarlo Expected Shortfall CVaR[L]: $ {0:12,.0f}'.format(classical_cvar))
+        if classical_benchmark:
+            classical_var, classical_cvar                                   = self.classical_run(self.alpha, self.loans)
+            result['classical_var'] = classical_var
+            result['classical_cvar'] = classical_cvar
+
+        return result
